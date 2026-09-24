@@ -13,8 +13,7 @@ COPY server/tsconfig.json ./
 COPY server/src ./src
 RUN npm run build && npm prune --omit=dev
 
-ARG BUILD_FROM=ghcr.io/home-assistant/base:3.24
-FROM ${BUILD_FROM}
+FROM ghcr.io/home-assistant/base:3.24
 
 RUN apk add --no-cache libstdc++
 COPY --from=node:22-alpine /usr/local/bin/node /usr/local/bin/node

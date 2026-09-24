@@ -1,5 +1,5 @@
 name: De Koelkastbeveiligger
-version: "1.0.0"
+version: "1.0.1"
 slug: koelkast
 description: Mobiele webapp die tijdens het rijden het scherm kleurt op de bocht voor je, en de tijd tot het volgende tankstation en de volgende rustplaats toont.
 arch:

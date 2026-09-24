@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Docker-build hersteld: runtime-stage gebruikt een vaste HA-base image i.p.v. `${BUILD_FROM}` (BuildKit zag die ARG niet tussen stages).
+
 ## 1.0.0
 
 - Eerste versie van De Koelkastbeveiligger: PWA die links groen, rechts rood en rechtdoor oranje kleurt, met afstand tot het volgende tankstation en de volgende rustplaats aan dezelfde rijbaan.
