@@ -1,0 +1,32 @@
+name: Koelkast
+version: "1.0.0"
+slug: koelkast
+description: Mobiele webapp die tijdens het rijden het scherm kleurt op de bocht voor je, en de tijd tot het volgende tankstation en de volgende rustplaats toont.
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+ports:
+  "8099/tcp": 8099
+ports_description:
+  "8099/tcp": Webapp (PWA). Publiceer deze poort via HTTPS, niet via het Home Assistant-paneel.
+ingress: true
+ingress_port: 8098
+panel_icon: mdi:fridge
+panel_title: Koelkast
+backup_exclude:
+  - cache
+options:
+  overpass_url: https://overpass-api.de/api/interpreter
+  overpass_fallback_url: https://overpass.kumi.systems/api/interpreter
+  cache_hours: 24
+  bocht_drempel_graden: 15
+  lookahead_seconden: 8
+schema:
+  overpass_url: url
+  overpass_fallback_url: str?
+  cache_hours: int(1,168)
+  bocht_drempel_graden: int(1,90)
+  lookahead_seconden: int(1,60)
