@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { escapeRef, refPattern, stopsQuery } from './overpass'
+import { escapeRef, refPattern, STOPS_RADIUS_M, stopsBBox, stopsQuery } from './overpass'
+import { distanceMeters } from './geometry'
 
 describe('ref-scoped stops query', () => {
   it('bouwt een regex voor A2 en A67', () => {
@@ -19,5 +20,14 @@ describe('ref-scoped stops query', () => {
     expect(query).toContain('amenity"="fuel"')
     expect(query).toContain('highway"="services"')
     expect(query).not.toMatch(/way\["highway"="motorway"\]\(50/)
+  })
+
+  it('zoekt stops in een box van ongeveer 90 km rondom de positie', () => {
+    expect(STOPS_RADIUS_M).toBe(90_000)
+    const box = stopsBBox(51.0, 5.7)
+    const north = distanceMeters({ lat: 51.0, lon: 5.7 }, { lat: box.north, lon: 5.7 })
+    const south = distanceMeters({ lat: 51.0, lon: 5.7 }, { lat: box.south, lon: 5.7 })
+    expect(north).toBeGreaterThan(80_000)
+    expect(south).toBeGreaterThan(80_000)
   })
 })

@@ -105,9 +105,15 @@ export function roadBBox(lat: number, lon: number): BBox {
   return snapBBox(lat, lon, padLat, padLon, 0.02)
 }
 
-/** ~40 km ahead corridor for ref-scoped stop lookups. */
+/**
+ * Corridor for ref-scoped stop lookups.
+ * Path search looks up to ~80 km ahead; keep the Overpass box at least that large
+ * so fuel/services beyond ~40 km are still in the graph.
+ */
+export const STOPS_RADIUS_M = 90_000
+
 export function stopsBBox(lat: number, lon: number): BBox {
-  const { padLat, padLon } = padsForRadius(lat, 40_000)
+  const { padLat, padLon } = padsForRadius(lat, STOPS_RADIUS_M)
   return snapBBox(lat, lon, padLat, padLon, 0.05)
 }
 

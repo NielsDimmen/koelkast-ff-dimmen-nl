@@ -15,7 +15,7 @@ export type AgendaEvent = {
 export type RemainingKm = {
   km: number
   label: string
-  source: 'nightliner-geo' | 'nightliner-location' | 'demo-track' | 'onbekend'
+  source: 'nightliner-geo' | 'nightliner-location' | 'nightliner-planned' | 'demo-track' | 'onbekend'
 }
 
 /** Remaining distance along a GPX/demo polyline from the current position to the end. */
@@ -93,8 +93,9 @@ function cleanPlaceName(raw: string): string | null {
 
 /**
  * Prefer GEO coordinates on the nightliner event. Without GEO, use crow-flies
- * only when LOCATION looks like "lat,lon"; otherwise keep null and let the UI
- * fall back to the demo track.
+ * when LOCATION looks like "lat,lon". Otherwise use the planned km from
+ * DESCRIPTION ("Nightliner drive to Amsterdam 203km") so the UI is not stuck
+ * on "– km resterend" when the calendar has no GEO.
  */
 export function remainingForNightliner(
   event: AgendaEvent,
@@ -119,11 +120,35 @@ export function remainingForNightliner(
       }
     }
   }
+  const planned = plannedKmFromDriveTo(event.description)
+  if (planned != null) {
+    return {
+      km: planned,
+      label: event.summary,
+      source: 'nightliner-planned',
+    }
+  }
   return {
     km: Number.NaN,
     label: event.summary,
     source: 'onbekend',
   }
+}
+
+/**
+ * Planned distance from nightliner DESCRIPTION phrasing, e.g.
+ * "Nightliner drive to Amsterdam 203km" → 203.
+ */
+export function plannedKmFromDriveTo(text: string | null | undefined): number | null {
+  if (!text) return null
+  const flat = text.replace(/\s+/g, ' ').trim()
+  const match =
+    /night\s*liners?\s+(?:drives?\s+)?to\s+.+?\s+(\d+(?:[.,]\d+)?)\s*km\b/i.exec(flat) ??
+    /drives?\s+to\s+.+?\s+(\d+(?:[.,]\d+)?)\s*km\b/i.exec(flat)
+  if (!match) return null
+  const km = Number(match[1].replace(',', '.'))
+  if (!Number.isFinite(km) || km <= 0) return null
+  return km
 }
 
 export function parseLatLonText(text: string): LatLon | null {
