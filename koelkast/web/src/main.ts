@@ -33,7 +33,8 @@ const tracker = new GpsTracker()
 const roadLatch = new RoadCurveLatch()
 const yawLatch = new YawCurveLatch()
 const roads = new TileCache(roadBBox, 1000, (box) => track(loadRoads(box)))
-const stops = new RefStopsCache(8_000, (box, refs) => track(loadStops(box, refs)))
+// Refetch when ~35 km from the box edge so ~80 km of stop data stays available ahead.
+const stops = new RefStopsCache(35_000, (box, refs) => track(loadStops(box, refs)))
 
 let settings: LocalSettings = { drempel: null, lookahead: null, debug: false, rate: 5 }
 let serverConfig = FALLBACK
@@ -397,7 +398,7 @@ function updateStops(fix: SmoothedFix, heading: number | null, payload: StopsPay
   const preferRef = match.travel.way.refs[0]
   const path = buildPath(stopGraph, match, {
     behindM: 2500,
-    aheadM: 70_000,
+    aheadM: 80_000,
     allowLinks: false,
     motorwayOnly: true,
     gapM: 12,
@@ -436,6 +437,13 @@ function resolveDestination(): string | null | undefined {
 
 function updateRemaining(fix: SmoothedFix): void {
   const destination = resolveDestination()
+  // Demo A2 always measures along the GPX, even if a nightliner is on the agenda.
+  if (demoTrack && demoA2) {
+    const meters = remainingAlongTrack(demoTrack, fix)
+    remainingText = formatRemainingKm(meters == null ? null : meters / 1000, destination)
+    driveLabel = 'Demo A2 Maastricht → Eindhoven'
+    return
+  }
   if (nightliner) {
     const fromEvent = remainingForNightliner(nightliner, fix)
     if (fromEvent && fromEvent.source !== 'onbekend' && Number.isFinite(fromEvent.km)) {
@@ -450,7 +458,7 @@ function updateRemaining(fix: SmoothedFix): void {
   if (demoTrack) {
     const meters = remainingAlongTrack(demoTrack, fix)
     remainingText = formatRemainingKm(meters == null ? null : meters / 1000, destination)
-    if (!driveLabel) driveLabel = demoA2 ? 'Demo A2 Maastricht → Eindhoven' : null
+    if (!driveLabel) driveLabel = null
     return
   }
   remainingText = formatRemainingKm(null, destination)

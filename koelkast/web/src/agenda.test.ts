@@ -4,6 +4,7 @@ import {
   nightlinerDestination,
   parseLatLonText,
   placeFromDriveTo,
+  plannedKmFromDriveTo,
   remainingAlongTrack,
   remainingForNightliner,
 } from './agenda'
@@ -52,6 +53,52 @@ describe('resterende kilometers', () => {
     expect(placeFromDriveTo('Nightliners to München 217km')).toBe('München')
     expect(placeFromDriveTo('Nightliners to Maastricht Solotech: later')).toBe('Maastricht')
     expect(placeFromDriveTo('Gewone show zonder rit')).toBeNull()
+  })
+
+  it('leest geplande km uit een nightliner-description zonder GEO', () => {
+    expect(plannedKmFromDriveTo('Nightliner drive to Amsterdam 203km')).toBe(203)
+    expect(plannedKmFromDriveTo('Nightliners drive to Maastricht 121km')).toBe(121)
+    expect(plannedKmFromDriveTo('Nightliner drive to Den Haag 80 km')).toBe(80)
+    expect(plannedKmFromDriveTo('25 September 00:30: Nightliners drive to Zürich 414km')).toBe(414)
+    expect(plannedKmFromDriveTo('Gewone show zonder rit')).toBeNull()
+
+    const result = remainingForNightliner(
+      {
+        uid: '1',
+        summary: 'Nightliner',
+        location: 'Ziggo Dome',
+        description: 'Nightliner drive to Amsterdam 203km',
+        start: '2026-09-24T20:00:00.000Z',
+        end: null,
+        lat: null,
+        lon: null,
+        nightliner: true,
+      },
+      { lat: 50.85, lon: 5.69 },
+    )
+    expect(result?.source).toBe('nightliner-planned')
+    expect(result!.km).toBe(203)
+    expect(formatRemainingKm(result!.km, 'Amsterdam')).toBe('203 km resterend · Amsterdam')
+  })
+
+  it('kiest GEO boven geplande km uit DESCRIPTION', () => {
+    const result = remainingForNightliner(
+      {
+        uid: '1',
+        summary: 'Nightliner',
+        location: null,
+        description: 'Nightliner drive to Amsterdam 203km',
+        start: '2026-09-24T20:00:00.000Z',
+        end: null,
+        lat: 51.44,
+        lon: 5.48,
+        nightliner: true,
+      },
+      { lat: 50.85, lon: 5.69 },
+    )
+    expect(result?.source).toBe('nightliner-geo')
+    expect(result!.km).toBeGreaterThan(50)
+    expect(result!.km).toBeLessThan(200)
   })
 
   it('kiest DESCRIPTION-plaats boven LOCATION, anders korte LOCATION', () => {

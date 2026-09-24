@@ -6,7 +6,7 @@ Tijdens het rijden kleurt deze webapp het hele scherm:
 - **rood** — er komt een bocht naar rechts
 - **oranje** — rechtdoor
 
-Onderin staat de tijd en afstand tot het volgende tankstation en de volgende rustplaats die aan jouw rijbaan liggen. Afritten, carpoolplaatsen en stops aan de overkant tellen niet mee.
+Onderin staat de tijd en afstand tot het volgende tankstation en de volgende rustplaats die aan jouw rijbaan liggen (tot ongeveer 80 km vooruit). Afritten, carpoolplaatsen en stops aan de overkant tellen niet mee. Resterende kilometers komen uit de GEO van het nightliner-event, of anders uit de geplande km in de DESCRIPTION (`Nightliner drive to … 203km`).
 
 Open de rij-app op `https://koelkast.ff-dimmen.nl`, niet in het paneel van Home Assistant. Locatie en installeren als webapp werken niet in dat iframe. Het paneel hier is alleen status: of de server draait, hoe groot de Overpass-cache is, en de laatste verzoeken.
 

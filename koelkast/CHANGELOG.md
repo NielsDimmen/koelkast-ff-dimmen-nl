@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Tankstations/rustplaatsen: Overpass-box verruimd van ~40 km naar ~90 km, pad zoekt tot 80 km vooruit, cache ververst eerder zodat verder gelegen stops zichtbaar blijven.
+- Resterende kilometers: zonder GEO op het nightliner-event wordt de geplande km uit de DESCRIPTION gebruikt (bijv. `Nightliner drive to Amsterdam 203km`).
+
 ## 1.0.1
 
 - Docker-build hersteld: runtime-stage gebruikt een vaste HA-base image i.p.v. `${BUILD_FROM}` (BuildKit zag die ARG niet tussen stages).
