@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -6,6 +6,7 @@ import compress from '@fastify/compress'
 import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import { cacheStats, readCache, writeCache } from './cache.js'
+import { parseIcalendar, pickNightliner, type AgendaEvent } from './ical.js'
 import { createLimiter } from './limit.js'
 import { readOptions } from './options.js'
 
@@ -127,20 +128,20 @@ const ingressHtml = `<!doctype html>
 <html lang="nl">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Koelkast</title>
+<title>De Koelkastbeveiligger</title>
 <style>
-  body { font: 16px/1.4 ui-sans-serif, system-ui, sans-serif; margin: 0; background: #101418; color: #f4f1ea; }
+  body { font: 16px/1.4 "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; margin: 0; background: #071018; color: #e8eef2; }
   main { max-width: 46rem; margin: 0 auto; padding: 1.5rem; }
-  h1 { font-size: 1.6rem; margin: 0 0 0.4rem; }
-  .muted { color: #b7c0c8; }
+  h1 { font-size: 1.6rem; margin: 0 0 0.4rem; font-family: "Barlow Condensed", sans-serif; letter-spacing: 0.02em; }
+  .muted { color: #8fa0ae; }
   dl { display: grid; grid-template-columns: 11rem 1fr; gap: 0.35rem 1rem; }
-  dt { color: #b7c0c8; }
+  dt { color: #8fa0ae; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  th, td { text-align: left; padding: 0.35rem 0.3rem; border-bottom: 1px solid #2a3340; }
-  a { color: #ffb15a; }
+  th, td { text-align: left; padding: 0.35rem 0.3rem; border-bottom: 1px solid #1c2a36; }
+  a { color: #7eb0c4; }
 </style>
 <main>
-  <h1>Koelkast</h1>
+  <h1>De Koelkastbeveiligger</h1>
   <p class="muted">Status van de server. De rij-app zelf staat niet in dit venster: open <a href="https://koelkast.ff-dimmen.nl">koelkast.ff-dimmen.nl</a> op je telefoon.</p>
   <dl id="facts"></dl>
   <h2>Laatste Overpass-verzoeken</h2>
@@ -177,6 +178,72 @@ async function buildApp() {
       bocht_drempel_graden: options.bocht_drempel_graden,
       lookahead_seconden: options.lookahead_seconden,
       cache_hours: options.cache_hours,
+      has_agenda: Boolean(options.agenda_url?.trim()),
+    }
+  })
+
+  app.get('/api/agenda', async (_request, reply) => {
+    const options = readOptions()
+    const url = options.agenda_url?.trim()
+    if (!url) return reply.code(404).send({ error: 'geen agenda_url', nightliner: null, events: [] })
+    const agendaCache = path.join(CACHE_DIR, 'agenda.ics')
+
+    const respondFromIcs = async (body: string, warning: string | null) => {
+      if (!/BEGIN:VCALENDAR/i.test(body)) {
+        return reply.code(502).send({ error: 'geen iCalendar', nightliner: null, events: [] })
+      }
+      const events = parseIcalendar(body)
+      const nightliner = pickNightliner(events)
+      console.log(
+        JSON.stringify({
+          msg: 'agenda',
+          events: events.length,
+          nightliners: events.filter((event: AgendaEvent) => event.nightliner).length,
+          picked: nightliner?.summary ?? null,
+          warning,
+        }),
+      )
+      return {
+        nightliner,
+        warning,
+        events: events.filter((event) => event.nightliner).slice(0, 20),
+      }
+    }
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          accept: 'text/calendar, text/plain, */*',
+          'user-agent': 'koelkast/1.0 (https://koelkast.ff-dimmen.nl)',
+        },
+        signal: AbortSignal.timeout(20_000),
+        redirect: 'follow',
+      })
+      const body = await response.text()
+      if (!response.ok) {
+        console.log(JSON.stringify({ msg: 'agenda-fout', status: response.status, bytes: body.length }))
+        throw new Error(`agenda status ${response.status}`)
+      }
+      if (!/BEGIN:VCALENDAR/i.test(body)) {
+        console.log(JSON.stringify({ msg: 'agenda-geen-ics', status: response.status, bytes: body.length }))
+        return reply.code(502).send({ error: 'geen iCalendar', nightliner: null, events: [] })
+      }
+      try {
+        await mkdir(CACHE_DIR, { recursive: true })
+        await writeFile(agendaCache, body)
+      } catch {
+        /* cache is best-effort */
+      }
+      return respondFromIcs(body, null)
+    } catch (error) {
+      console.log(JSON.stringify({ msg: 'agenda-fout', error: String(error) }))
+      try {
+        const cached = await readFile(agendaCache, 'utf8')
+        console.log(JSON.stringify({ msg: 'agenda-cache', bytes: cached.length }))
+        return respondFromIcs(cached, 'agenda offline')
+      } catch {
+        return reply.code(502).send({ error: 'agenda onbereikbaar', nightliner: null, events: [] })
+      }
     }
   })
 

@@ -82,7 +82,7 @@ function stepsFor(platform: InstallPlatform): string {
     return `<p>Tik op Installeren. Lukt dat niet, open het menu <strong>⋮</strong> en kies <strong>Installeren</strong> of <strong>Zet op beginscherm</strong>.</p>
       <button type="button" class="primary" id="native-install" hidden>Installeren</button>`
   }
-  return `<p>Installeer Koelkast via het installatie-icoon in de adresbalk, of het menu van je browser.</p>
+  return `<p>Installeer De Koelkastbeveiligger via het installatie-icoon in de adresbalk, of het menu van je browser.</p>
     <button type="button" class="primary" id="native-install" hidden>Installeren</button>`
 }
 
@@ -109,7 +109,7 @@ export function mountInstall(root: HTMLElement): { openHelp: () => void; platfor
   overlay.className = 'install-overlay'
   overlay.hidden = true
   overlay.innerHTML = `<div class="install-card" role="dialog" aria-labelledby="install-title">
-    <h1 id="install-title">Zet Koelkast op je beginscherm</h1>
+    <h1 id="install-title">Zet De Koelkastbeveiligger op je beginscherm</h1>
     <p class="why">Volledig scherm, het scherm blijft aan, en de app start sneller.</p>
     <div class="install-body"></div>
     <div class="install-actions">
@@ -125,7 +125,7 @@ export function mountInstall(root: HTMLElement): { openHelp: () => void; platfor
     body.innerHTML = stepsFor(forced && platform === 'standalone' ? 'ios-safari' : platform === 'standalone' ? 'ios-safari' : platform)
     if (forced && platform === 'desktop') body.innerHTML = stepsFor('desktop')
     if (forced && platform === 'standalone') {
-      body.innerHTML = `<p>Koelkast draait al als app. Op een andere telefoon installeer je hem via Deel → Zet op beginscherm, of via het menu van Chrome.</p>`
+      body.innerHTML = `<p>De Koelkastbeveiligger draait al als app. Op een andere telefoon installeer je hem via Deel → Zet op beginscherm, of via het menu van Chrome.</p>`
     }
     overlay.hidden = false
     const native = overlay.querySelector<HTMLButtonElement>('#native-install')

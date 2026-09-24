@@ -1,4 +1,4 @@
-# Koelkast
+# De Koelkastbeveiligger
 
 Tijdens het rijden kleurt deze webapp het hele scherm:
 
@@ -13,7 +13,7 @@ Open de rij-app op `https://koelkast.ff-dimmen.nl`, niet in het paneel van Home 
 ## Installeren en bijwerken
 
 1. Instellingen → Apps → App-store → ⋮ → Repositories. Plak de git-URL van deze repository.
-2. Installeer **Koelkast** en start hem. De app luistert op poort **8099/tcp**, standaard ook op de host als 8099.
+2. Installeer **De Koelkastbeveiligger** en start hem. De app luistert op poort **8099/tcp**, standaard ook op de host als 8099.
 3. Een nieuwe versie installeer je vanuit de store nadat de repository is ververst. Herstart daarna de app.
 
 Opties staan onder Configuratie:
@@ -23,8 +23,11 @@ Opties staan onder Configuratie:
 - `cache_hours` — hoelang een Overpass-antwoord in `/data/cache` geldig blijft (standaard 24)
 - `bocht_drempel_graden` — standaard 15
 - `lookahead_seconden` — standaard 8. De kijkafstand is minstens 150 meter, of snelheid × deze seconden
+- `agenda_url` — private iCalendar-URL (alleen op de server). De webapp ziet hem niet; alleen `/api/agenda` levert het huidige of volgende nightliner-event
 
 Drempel en lookahead kun je op de telefoon nog lokaal wijzigen.
+
+Een gevaarlijke bocht (richtingsverandering groter dan de drempel) kleurt het scherm zodra hij in de lookahead ligt, en blijft groen/rood tot je die bocht voorbij bent.
 
 ## Reverse proxy en HTTPS
 
@@ -35,9 +38,9 @@ iOS geeft alleen locatie en een beginscherm-icoon op een echte HTTPS-site. Een s
 1. DNS: A-record `koelkast.ff-dimmen.nl` naar het publieke IP waar NPM op 443 bereikbaar is.
 2. Proxy Host: domein `koelkast.ff-dimmen.nl`, scheme `http`, forward hostname het IP van de Home Assistant-host, poort `8099`.
 3. SSL: Let's Encrypt, Force SSL aan.
-4. NPM stuurt `X-Forwarded-For` mee. Daarop limiteert Koelkast het aantal Overpass-verzoeken per bezoeker.
+4. NPM stuurt `X-Forwarded-For` mee. Daarop limiteert De Koelkastbeveiligger het aantal Overpass-verzoeken per bezoeker.
 
-Staat NPM als app naast Koelkast, dan kun je forwarden naar `http://koelkast:8099`. Werkt die naam niet, gebruik het LAN-IP van de host en poort 8099.
+Staat NPM als app naast De Koelkastbeveiligger, dan kun je forwarden naar `http://koelkast:8099`. Werkt die naam niet, gebruik het LAN-IP van de host en poort 8099.
 
 ### Cloudflare Tunnel
 
@@ -80,7 +83,7 @@ Poort 8098 is de statuspagina die in Home Assistant via ingress binnenkomt.
 
 1. Open `https://koelkast.ff-dimmen.nl` in Safari of Chrome.
 2. Installeer via de uitleg op het eerste scherm. In WhatsApp of Instagram: kopieer de link en open hem in Safari of Chrome.
-3. Start Koelkast vanaf het beginscherm, tik op Start en sta locatie toe. Op iOS komt die vraag pas na het installeren opnieuw.
+3. Start De Koelkastbeveiligger vanaf het beginscherm, tik op Start en sta locatie toe. Op iOS komt die vraag pas na het installeren opnieuw.
 4. Zonder te rijden: **Demo A2**, snelheid 1×, 5× of 10×. De gele balk DEMO hoort zichtbaar te blijven. Onder Instellingen kun je een eigen GPX laden en de debug-kaart aanzetten. Die kaart toont de gematchte weg, de lookahead en per stop waarom hij wel of niet meetelt.
 
 ## Demo opnieuw genereren

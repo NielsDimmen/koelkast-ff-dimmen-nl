@@ -1,4 +1,4 @@
-name: Koelkast
+name: De Koelkastbeveiligger
 version: "1.0.0"
 slug: koelkast
 description: Mobiele webapp die tijdens het rijden het scherm kleurt op de bocht voor je, en de tijd tot het volgende tankstation en de volgende rustplaats toont.
@@ -15,7 +15,7 @@ ports_description:
 ingress: true
 ingress_port: 8098
 panel_icon: mdi:fridge
-panel_title: Koelkast
+panel_title: De Koelkastbeveiligger
 backup_exclude:
   - cache
 options:
@@ -24,9 +24,11 @@ options:
   cache_hours: 24
   bocht_drempel_graden: 15
   lookahead_seconden: 8
+  agenda_url: https://dpf.tourmanagement.com/icalendar/ybTnYwuRyGogFPXzcR3qZiVF38N9acmk
 schema:
   overpass_url: url
   overpass_fallback_url: str?
   cache_hours: int(1,168)
   bocht_drempel_graden: int(1,90)
   lookahead_seconden: int(1,60)
+  agenda_url: str

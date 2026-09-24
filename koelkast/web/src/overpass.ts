@@ -57,25 +57,45 @@ function boxArgs(box: BBox): string {
   return `${formatCoord(box.south)},${formatCoord(box.west)},${formatCoord(box.north)},${formatCoord(box.east)}`
 }
 
+/** Escape a road ref for Overpass regex (A2, A67, N2…). */
+export function escapeRef(ref: string): string {
+  return ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function refPattern(refs: string[]): string {
+  const parts = refs.map(escapeRef).filter(Boolean)
+  if (parts.length === 0) return ''
+  return `(^|;)${parts.length === 1 ? parts[0] : `(?:${parts.join('|')})`}($|;)`
+}
+
 export function roadQuery(box: BBox): string {
   return `[out:json][timeout:25];way["highway"~"^(${ROAD_HIGHWAYS})$"](${boxArgs(box)});out geom;`
 }
 
-export function stopsQuery(box: BBox): string {
+/**
+ * Stops along our motorway(s): only ways with the matched ref(s), then nearby
+ * links, service roads and fuel/services places. Much smaller than every
+ * motorway in a 60 km box.
+ */
+export function stopsQuery(box: BBox, refs: string[]): string {
   const bounds = boxArgs(box)
-  // Bbox-filters, geen around op het hele snelwegennet: dat laat Overpass
-  // te vaak timen. Service-wegen mét ref zitten zo toch in het gebied.
+  const pattern = refPattern(refs)
+  if (!pattern) {
+    return `[out:json][timeout:25];way["highway"="motorway"](${bounds});out geom;`
+  }
   return `[out:json][timeout:25];
+way["highway"="motorway"]["ref"~"${pattern}"](${bounds})->.mw;
 (
-  way["highway"="motorway"](${bounds});
-  way["highway"="motorway_link"](${bounds});
-  way["highway"="service"]["ref"](${bounds});
-  node["amenity"="fuel"](${bounds});
-  way["amenity"="fuel"](${bounds});
-  node["highway"="rest_area"](${bounds});
-  way["highway"="rest_area"](${bounds});
-  node["highway"="services"](${bounds});
-  way["highway"="services"](${bounds});
+  way.mw;
+  way["highway"="motorway_link"](around.mw:220);
+  way["highway"="service"]["ref"~"${pattern}"](${bounds});
+  way["highway"="service"](around.mw:80);
+  node["amenity"="fuel"](around.mw:400);
+  way["amenity"="fuel"](around.mw:400);
+  node["highway"="rest_area"](around.mw:400);
+  way["highway"="rest_area"](around.mw:400);
+  node["highway"="services"](around.mw:400);
+  way["highway"="services"](around.mw:400);
 );
 out geom;`
 }
@@ -85,9 +105,10 @@ export function roadBBox(lat: number, lon: number): BBox {
   return snapBBox(lat, lon, padLat, padLon, 0.02)
 }
 
+/** ~40 km ahead corridor for ref-scoped stop lookups. */
 export function stopsBBox(lat: number, lon: number): BBox {
-  const { padLat, padLon } = padsForRadius(lat, 60_000)
-  return snapBBox(lat, lon, padLat, padLon, 0.1)
+  const { padLat, padLon } = padsForRadius(lat, 40_000)
+  return snapBBox(lat, lon, padLat, padLon, 0.05)
 }
 
 export type FetchState = 'leeg' | 'laden' | 'ok' | 'fout'
@@ -135,6 +156,54 @@ export class TileCache<T> {
   }
 }
 
+/** Cache keyed by motorway ref(s) + snapped bbox. */
+export class RefStopsCache {
+  bbox: BBox | null = null
+  refsKey = ''
+  data: StopsPayload | null = null
+  state: FetchState = 'leeg'
+  error: string | null = null
+  private flight: Promise<void> | null = null
+  private retryAt = 0
+
+  constructor(
+    private readonly marginM: number,
+    private readonly load: (box: BBox, refs: string[]) => Promise<StopsPayload>,
+  ) {}
+
+  needs(lat: number, lon: number, refs: string[]): boolean {
+    const key = refs.slice().sort().join('|')
+    if (!this.bbox || this.data == null || this.refsKey !== key) return true
+    return distanceToBBoxEdge(lat, lon, this.bbox) < this.marginM
+  }
+
+  ensure(lat: number, lon: number, refs: string[]): void {
+    if (refs.length === 0) return
+    if (!this.needs(lat, lon, refs) || this.flight || Date.now() < this.retryAt) return
+    const box = stopsBBox(lat, lon)
+    const key = refs.slice().sort().join('|')
+    this.state = 'laden'
+    this.error = null
+    this.flight = this.load(box, refs)
+      .then((data) => {
+        this.bbox = box
+        this.refsKey = key
+        this.data = data
+        this.state = 'ok'
+        this.error = null
+        this.retryAt = 0
+      })
+      .catch((error: unknown) => {
+        this.error = error instanceof Error ? error.message : 'fout'
+        this.state = this.data && this.refsKey === key ? 'ok' : 'fout'
+        this.retryAt = Date.now() + 12_000
+      })
+      .finally(() => {
+        this.flight = null
+      })
+  }
+}
+
 export async function loadRoads(box: BBox): Promise<Way[]> {
   const elements = await overpass(roadQuery(box), 50_000)
   return waysFromElements(elements, (way) => isDrivableHighway(way.highway))
@@ -142,8 +211,8 @@ export async function loadRoads(box: BBox): Promise<Way[]> {
 
 export type StopsPayload = { ways: Way[]; stops: StopFeature[] }
 
-export async function loadStops(box: BBox): Promise<StopsPayload> {
-  const elements = await overpass(stopsQuery(box), 90_000)
+export async function loadStops(box: BBox, refs: string[]): Promise<StopsPayload> {
+  const elements = await overpass(stopsQuery(box, refs), 55_000)
   return {
     ways: waysFromElements(
       elements,

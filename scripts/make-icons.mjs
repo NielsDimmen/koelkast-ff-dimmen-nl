@@ -68,6 +68,15 @@ function canvas(width, height) {
       data[i + 2] = b
       data[i + 3] = a
     },
+    rect(x0, y0, x1, y1, color) {
+      const left = Math.min(x0, x1)
+      const right = Math.max(x0, x1)
+      const top = Math.min(y0, y1)
+      const bottom = Math.max(y0, y1)
+      for (let y = top; y <= bottom; y++) {
+        for (let x = left; x <= right; x++) api.px(x, y, ...color)
+      }
+    },
     circle(cx, cy, radius, color) {
       for (let y = cy - radius; y <= cy + radius; y++) {
         for (let x = cx - radius; x <= cx + radius; x++) {
@@ -79,45 +88,48 @@ function canvas(width, height) {
   return api
 }
 
-function inside(x, y, polygon) {
-  let hit = false
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const [xi, yi] = polygon[i]
-    const [xj, yj] = polygon[j]
-    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 0.00001) + xi
-    if (intersect) hit = !hit
-  }
-  return hit
-}
-
 function draw(size, { maskable = false, plate = true } = {}) {
+  const cabinet = [7, 16, 24, 255]
+  const cream = [235, 228, 214, 255]
+  const steel = [200, 210, 219, 255]
+  const guard = [106, 143, 158, 255]
+  const guardDeep = [61, 90, 102, 255]
   const image = canvas(size, size)
-  if (maskable) image.fill(16, 20, 24, 255)
-  else if (!plate) image.fill(0, 0, 0, 0)
-  else image.fill(16, 20, 24, 255)
+  if (maskable || plate) image.fill(...cabinet)
+  else image.fill(0, 0, 0, 0)
 
-  const margin = maskable ? size * 0.18 : size * 0.12
-  const scale = (size - margin * 2) / 100
-  const arrow = [
-    [50, 8],
-    [90, 78],
-    [66, 78],
-    [50, 48],
-    [34, 78],
-    [10, 78],
-  ].map(([x, y]) => [margin + x * scale, margin + y * scale])
+  const margin = maskable ? size * 0.18 : size * 0.14
+  const doorLeft = margin
+  const doorTop = margin
+  const doorRight = size - margin
+  const doorBottom = size - margin * 1.05
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (inside(x, y, arrow)) image.px(x, y, 244, 241, 234, 255)
-    }
-  }
-  const dotY = size * (maskable ? 0.8 : 0.84)
-  const dotR = Math.max(3, size * 0.045)
-  const gap = size * 0.11
-  image.circle(size / 2 - gap, dotY, dotR, [25, 163, 74, 255])
-  image.circle(size / 2, dotY, dotR, [255, 122, 0, 255])
-  image.circle(size / 2 + gap, dotY, dotR, [225, 6, 0, 255])
+  // Cold cabinet frame
+  image.rect(doorLeft - size * 0.03, doorTop - size * 0.03, doorRight + size * 0.03, doorBottom + size * 0.03, [19, 32, 44, 255])
+  // Cream/steel fridge face
+  image.rect(doorLeft, doorTop, doorRight, doorBottom, cream)
+  // Steel divider line
+  const mid = (doorTop + doorBottom) / 2
+  image.rect(doorLeft + size * 0.04, mid - size * 0.01, doorRight - size * 0.04, mid + size * 0.01, steel)
+  // Handle
+  const handleX = doorRight - size * 0.1
+  image.rect(handleX, mid - size * 0.12, handleX + size * 0.035, mid + size * 0.12, guardDeep)
+  image.rect(handleX + size * 0.008, mid - size * 0.1, handleX + size * 0.027, mid + size * 0.1, guard)
+  // Small guard badge
+  const bx = doorLeft + size * 0.12
+  const by = doorTop + size * 0.14
+  const br = size * 0.055
+  image.circle(bx, by, br, guardDeep)
+  image.circle(bx, by, br * 0.62, guard)
+
+  // Status signal dots (left / straight / right) — not branding
+  const dotY = doorBottom - size * 0.1
+  const dotR = Math.max(3, size * 0.04)
+  const gap = size * 0.1
+  const cx = (doorLeft + doorRight) / 2
+  image.circle(cx - gap, dotY, dotR, [25, 163, 74, 255])
+  image.circle(cx, dotY, dotR, [255, 122, 0, 255])
+  image.circle(cx + gap, dotY, dotR, [225, 6, 0, 255])
   return encodePng(size, size, image.data)
 }
 

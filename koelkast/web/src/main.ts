@@ -1,23 +1,39 @@
-import { classifyTurn, BendHysteresis, colorName, totalTurnDegrees, type Bend } from './curve'
+import { classifyTurn, colorName, RoadCurveLatch, YawCurveLatch, type Bend } from './curve'
 import { slicePolyline, type LatLon } from './geometry'
 import { GpsTracker, startWakeLock, stopWakeLock, wakeLockHeld, type SmoothedFix } from './gps'
 import { mountInstall } from './install'
 import { registerSW } from 'virtual:pwa-register'
+import { buildGraph, buildPath, matchRoad, waysFromElements, type Graph, type Way } from './matcher'
+import {
+  loadRoads,
+  loadStops,
+  roadBBox,
+  RefStopsCache,
+  TileCache,
+  type StopsPayload,
+} from './overpass'
+import { parseGpx, playTrack, type TrackPoint } from './simulator'
+import { averageSpeedMps, evaluateStops, formatStopLine, stopsFromElements } from './stops'
+import {
+  formatRemainingKm,
+  nightlinerDestination,
+  remainingAlongTrack,
+  remainingForNightliner,
+  type AgendaEvent,
+} from './agenda'
+import { mountUi, type DriveModel, type LocalSettings } from './ui'
+import type { OsmElement } from './types'
+import './style.css'
 
 registerSW({ immediate: true })
-import { buildGraph, buildPath, matchRoad, type Graph, type Way } from './matcher'
-import { loadRoads, loadStops, roadBBox, stopsBBox, TileCache } from './overpass'
-import { parseGpx, playTrack } from './simulator'
-import { averageSpeedMps, evaluateStops, formatStopLine } from './stops'
-import { mountUi, type DriveModel, type LocalSettings } from './ui'
-import './style.css'
 
 const FALLBACK = { bocht_drempel_graden: 15, lookahead_seconden: 8 }
 
 const tracker = new GpsTracker()
-const hysteresis = new BendHysteresis(1000)
+const roadLatch = new RoadCurveLatch()
+const yawLatch = new YawCurveLatch()
 const roads = new TileCache(roadBBox, 1000, (box) => track(loadRoads(box)))
-const stops = new TileCache(stopsBBox, 10_000, (box) => track(loadStops(box)))
+const stops = new RefStopsCache(8_000, (box, refs) => track(loadStops(box, refs)))
 
 let settings: LocalSettings = { drempel: null, lookahead: null, debug: false, rate: 5 }
 let serverConfig = FALLBACK
@@ -32,8 +48,20 @@ let stopGraph: Graph | null = null
 let lastStopAt = 0
 let fuelLine = '⛽ …'
 let restLine = '🅿 …'
+let remainingText = '– km resterend'
+let driveLabel: string | null = null
 let debugStops: DriveModel['stops'] = []
+let nextStops: DriveModel['nextStops'] = []
 let running = false
+let driveSession = 0
+let demoTrack: LatLon[] | null = null
+let demoCorridor: StopsPayload | null = null
+/** True only for the Demo A2 button path (not live Start, not arbitrary GPX). */
+let demoA2 = false
+let nightliner: AgendaEvent | null = null
+/** Short Dutch agenda note for the status line; null when ok / quiet. */
+let agendaNote: string | null = null
+let lastFix: SmoothedFix | null = null
 
 const ui = mountUi(document.querySelector<HTMLElement>('#app')!, {
   onStart: () => startGps(),
@@ -53,6 +81,7 @@ const install = mountInstall(document.querySelector<HTMLElement>('#install')!)
 settings = ui.settings()
 
 void loadServerConfig()
+void loadAgenda()
 
 async function track<T>(work: Promise<T>): Promise<T> {
   try {
@@ -80,6 +109,36 @@ async function loadServerConfig(): Promise<void> {
   }
 }
 
+async function loadAgenda(): Promise<void> {
+  try {
+    const response = await fetch('/api/agenda')
+    const body = (await response.json().catch(() => ({}))) as {
+      nightliner?: AgendaEvent | null
+      error?: string
+      warning?: string
+    }
+    if (!response.ok) {
+      nightliner = null
+      agendaNote =
+        body.error === 'geen agenda_url'
+          ? 'geen agenda'
+          : body.error === 'geen iCalendar'
+            ? 'agenda ongeldig'
+            : 'agenda weg'
+      return
+    }
+    nightliner = body.nightliner ?? null
+    agendaNote = typeof body.warning === 'string' && body.warning ? body.warning : null
+  } catch {
+    nightliner = null
+    agendaNote = 'agenda weg'
+  }
+  if (running) {
+    if (lastFix) updateRemaining(lastFix)
+    else remainingText = formatRemainingKm(null, resolveDestination())
+  }
+}
+
 function threshold(): number {
   return settings.drempel ?? serverConfig.bocht_drempel_graden
 }
@@ -88,13 +147,30 @@ function lookaheadSeconds(): number {
   return settings.lookahead ?? serverConfig.lookahead_seconden
 }
 
+function resetDriveLines(): void {
+  lastStopAt = 0
+  fuelLine = '⛽ …'
+  restLine = '🅿 …'
+  remainingText = formatRemainingKm(null, resolveDestination())
+  driveLabel = demoA2 ? 'Demo A2 Maastricht → Eindhoven' : nightliner?.summary ?? null
+  nextStops = []
+  debugStops = []
+}
+
 function beginGps(): void {
+  driveSession += 1
+  tracker.stop()
   stopPlayback()
   demoRate = null
+  demoTrack = null
+  demoCorridor = null
+  demoA2 = false
   running = true
-  hysteresis.reset('straight')
+  roadLatch.reset()
+  yawLatch.reset()
+  resetDriveLines()
   startWakeLock()
-  ui.showDrive()
+  ui.showDrive(null, { remaining: remainingText })
   tracker.start(
     (fix) => {
       wakeOk = wakeLockHeld()
@@ -115,32 +191,64 @@ function startGps(): void {
 }
 
 async function startDemo(rate: number): Promise<void> {
+  const session = ++driveSession
   startWakeLock()
-  const response = await fetch('/demo/a2-maastricht-eindhoven.gpx')
-  if (!response.ok) {
+  const [gpxResponse, corridorResponse] = await Promise.all([
+    fetch('/demo/a2-maastricht-eindhoven.gpx'),
+    fetch('/demo/a2-corridor.json'),
+  ])
+  if (session !== driveSession) return
+  if (!gpxResponse.ok) {
     ui.showStart('Demorit ontbreekt')
     return
   }
-  beginPlayback(parseGpx(await response.text()), rate)
+  const points = parseGpx(await gpxResponse.text())
+  if (session !== driveSession) return
+  if (corridorResponse.ok) {
+    try {
+      const body = (await corridorResponse.json()) as { elements?: OsmElement[] }
+      const elements = body.elements ?? []
+      demoCorridor = {
+        ways: waysFromElements(
+          elements,
+          (way) => way.highway === 'motorway' || way.highway === 'motorway_link' || way.highway === 'service',
+        ),
+        stops: stopsFromElements(elements),
+      }
+    } catch {
+      demoCorridor = null
+    }
+  } else {
+    demoCorridor = null
+  }
+  if (session !== driveSession) return
+  beginPlayback(points, rate, session, true)
 }
 
 async function startFile(file: File, rate: number): Promise<void> {
+  const session = ++driveSession
   startWakeLock()
   try {
-    beginPlayback(parseGpx(await file.text()), rate)
+    demoCorridor = null
+    beginPlayback(parseGpx(await file.text()), rate, session, false)
   } catch (error) {
+    if (session !== driveSession) return
     ui.showStart(error instanceof Error ? error.message : 'GPX niet leesbaar')
   }
 }
 
-function beginPlayback(points: ReturnType<typeof parseGpx>, rate: number): void {
+function beginPlayback(points: TrackPoint[], rate: number, session = driveSession, asDemoA2 = false): void {
+  if (session !== driveSession) return
   tracker.stop()
   stopPlayback()
   demoRate = rate
+  demoA2 = asDemoA2
+  demoTrack = points.map((point) => ({ lat: point.lat, lon: point.lon }))
   running = true
-  hysteresis.reset('straight')
-  lastStopAt = 0
-  ui.showDrive()
+  roadLatch.reset()
+  yawLatch.reset()
+  resetDriveLines()
+  ui.showDrive(rate, { remaining: remainingText })
   tracker.listen((fix) => {
     wakeOk = wakeLockHeld()
     onFix(fix)
@@ -161,8 +269,14 @@ function stopPlayback(): void {
 }
 
 function stopAll(): void {
+  driveSession += 1
   running = false
   demoRate = null
+  demoTrack = null
+  demoCorridor = null
+  demoA2 = false
+  lastFix = null
+  resetDriveLines()
   tracker.stop()
   stopPlayback()
   stopWakeLock()
@@ -177,65 +291,77 @@ function graphOf(ways: Way[] | null, current: Way[] | null, graph: Graph | null)
 
 function onFix(fix: SmoothedFix): void {
   if (!running) return
+  lastFix = fix
   roads.ensure(fix.lat, fix.lon)
-  stops.ensure(fix.lat, fix.lon)
   const roadState = graphOf(roads.data, roadWays, roadGraph)
   roadWays = roadState.ways
   roadGraph = roadState.graph
-  const stopState = graphOf(stops.data?.ways ?? null, stopWays, stopGraph)
-  stopWays = stopState.ways
-  stopGraph = stopState.graph
 
   const heading = fix.heading
   let bend: Bend = 'straight'
   let matched: LatLon[] | null = null
   let lookahead: LatLon[] | null = null
+  let matchedRefs: string[] = []
 
   if (roadGraph && heading != null) {
     const match = matchRoad(roadGraph, fix, heading)
     if (match) {
+      matchedRefs = match.travel.way.refs
       const ahead = Math.max(150, (fix.speed ?? 0) * lookaheadSeconds())
       const path = buildPath(roadGraph, match, {
         behindM: 80,
-        aheadM: ahead,
+        aheadM: Math.max(ahead, 400),
         allowLinks: true,
         motorwayOnly: false,
       })
       matched = path.points
       const window = slicePolyline(path.points, path.ourAlong + 50, path.ourAlong + ahead)
       lookahead = window
-      bend = window.length >= 3 ? classifyTurn(totalTurnDegrees(window), threshold()) : yawBend(fix.timestamp)
+      bend = roadLatch.update(path.points, path.ourAlong, ahead, threshold())
+      yawLatch.reset()
     } else {
-      bend = yawBend(fix.timestamp)
+      bend = yawLatch.update(yawBend(fix.timestamp), fix.timestamp)
     }
   } else if (heading != null) {
-    bend = yawBend(fix.timestamp)
+    bend = yawLatch.update(yawBend(fix.timestamp), fix.timestamp)
   }
 
-  const shown = hysteresis.update(bend, fix.timestamp)
+  if (matchedRefs.length > 0 && !demoCorridor) {
+    stops.ensure(fix.lat, fix.lon, matchedRefs)
+  }
+
+  const stopPayload = demoCorridor ?? stops.data
+  const stopState = graphOf(stopPayload?.ways ?? null, stopWays, stopGraph)
+  stopWays = stopState.ways
+  stopGraph = stopState.graph
+
   if (fix.timestamp - lastStopAt > 2000) {
     lastStopAt = fix.timestamp
-    updateStops(fix, heading)
+    updateStops(fix, heading, stopPayload)
+    updateRemaining(fix)
   }
 
   const model: DriveModel = {
-    bend: shown,
+    bend,
     speedKmh: fix.speed == null ? null : fix.speed * 3.6,
     fuel: fuelLine,
     rest: restLine,
+    remaining: remainingText,
+    driveLabel,
     gps: fix.accuracy ? `GPS ${Math.round(fix.accuracy)} m` : 'GPS ok',
     roads: dataLabel(),
-    server: serverOnline ? 'server ok' : 'server weg',
+    server: [serverOnline ? 'server ok' : 'server weg', agendaNote].filter(Boolean).join(' · '),
     demoRate,
     debug: settings.debug,
     position: fix,
     matched,
     lookahead,
+    nextStops,
     stops: debugStops,
     wake: wakeOk,
   }
   ui.update(model)
-  if (shown) document.title = `Koelkast · ${colorName(shown)}`
+  document.title = `De Koelkastbeveiligger · ${colorName(bend)}`
 }
 
 function yawBend(now: number): Bend {
@@ -244,14 +370,17 @@ function yawBend(now: number): Bend {
   return classifyTurn(delta, threshold())
 }
 
-function updateStops(fix: SmoothedFix, heading: number | null): void {
+function updateStops(fix: SmoothedFix, heading: number | null, payload: StopsPayload | null): void {
   const speed = averageSpeedMps(tracker.speedSamples(), fix.timestamp)
-  if (!stopGraph || !stops.data || heading == null) {
+  const stopsState = demoCorridor ? 'ok' : stops.state
+  if (!stopGraph || !payload || heading == null) {
     fuelLine = '⛽ …'
     restLine = '🅿 …'
-    debugStops = stops.state === 'fout'
-      ? [{ lat: fix.lat, lon: fix.lon, name: 'Stops', reason: stops.error ?? 'fout', ok: false }]
-      : []
+    nextStops = []
+    debugStops =
+      stopsState === 'fout'
+        ? [{ lat: fix.lat, lon: fix.lon, name: 'Stops', reason: stops.error ?? 'fout', ok: false }]
+        : []
     return
   }
   const match = matchRoad(stopGraph, fix, heading, {
@@ -261,19 +390,31 @@ function updateStops(fix: SmoothedFix, heading: number | null): void {
   if (!match) {
     fuelLine = formatStopLine('fuel', null, speed)
     restLine = formatStopLine('rest', null, speed)
+    nextStops = []
     debugStops = [{ lat: fix.lat, lon: fix.lon, name: 'Positie', reason: 'niet op een snelweg', ok: false }]
     return
   }
+  const preferRef = match.travel.way.refs[0]
   const path = buildPath(stopGraph, match, {
     behindM: 2500,
     aheadM: 70_000,
     allowLinks: false,
     motorwayOnly: true,
     gapM: 12,
+    preferRef,
   })
-  const evaluated = evaluateStops(stopGraph, path, stops.data.stops)
+  const evaluated = evaluateStops(stopGraph, path, payload.stops)
   fuelLine = formatStopLine('fuel', evaluated.fuel, speed)
   restLine = formatStopLine('rest', evaluated.rest, speed)
+  nextStops = [evaluated.fuel, evaluated.rest]
+    .filter((hit): hit is NonNullable<typeof hit> => hit != null)
+    .map((hit) => ({
+      lat: hit.lat,
+      lon: hit.lon,
+      name: hit.name ?? (hit.kind === 'fuel' ? 'Tankstation' : 'Rustplaats'),
+      reason: 'goedgekeurd',
+      ok: true,
+    }))
   debugStops = evaluated.decisions
     .map((decision) => ({
       lat: decision.lat,
@@ -286,7 +427,37 @@ function updateStops(fix: SmoothedFix, heading: number | null): void {
   serverOnline = true
 }
 
+function resolveDestination(): string | null | undefined {
+  // Demo A2 always ends in Eindhoven; live Start uses the agenda nightliner place.
+  if (demoA2) return 'Eindhoven'
+  if (nightliner) return nightlinerDestination(nightliner)
+  return undefined
+}
+
+function updateRemaining(fix: SmoothedFix): void {
+  const destination = resolveDestination()
+  if (nightliner) {
+    const fromEvent = remainingForNightliner(nightliner, fix)
+    if (fromEvent && fromEvent.source !== 'onbekend' && Number.isFinite(fromEvent.km)) {
+      remainingText = formatRemainingKm(fromEvent.km, destination)
+      driveLabel = nightliner.summary
+      return
+    }
+    driveLabel = nightliner.summary
+  } else {
+    driveLabel = null
+  }
+  if (demoTrack) {
+    const meters = remainingAlongTrack(demoTrack, fix)
+    remainingText = formatRemainingKm(meters == null ? null : meters / 1000, destination)
+    if (!driveLabel) driveLabel = demoA2 ? 'Demo A2 Maastricht → Eindhoven' : null
+    return
+  }
+  remainingText = formatRemainingKm(null, destination)
+}
+
 function dataLabel(): string {
+  if (demoCorridor) return `${tileLabel('wegen', roads.state, roads.error)} · stops ok`
   return `${tileLabel('wegen', roads.state, roads.error)} · ${tileLabel('stops', stops.state, stops.error)}`
 }
 

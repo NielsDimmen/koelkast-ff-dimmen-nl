@@ -1,4 +1,4 @@
-# Koelkast
+# De Koelkastbeveiligger
 
 Home Assistant-app die een mobiele webapp serveert. Tijdens het rijden kleurt het hele scherm op de bocht vóór je:
 
@@ -49,9 +49,9 @@ npm test
 
 1. Instellingen → Apps → App-store → rechtsboven de drie puntjes → Repositories.
 2. Voeg de git-URL van deze repository toe. `repository.yaml` staat in de root, de app staat in de map `koelkast`.
-3. Zoek Koelkast en installeer hem. Architecturen: aarch64 en amd64.
+3. Zoek De Koelkastbeveiligger en installeer hem. Architecturen: aarch64 en amd64.
 4. Start de app. Poort 8099/tcp wordt standaard op de host gepubliceerd als 8099.
-5. Het zijpaneel Koelkast is alleen de statuspagina (draait hij, cache, laatste Overpass-verzoeken). De rij-app open je via HTTPS op poort 8099.
+5. Het zijpaneel De Koelkastbeveiligger is alleen de statuspagina (draait hij, cache, laatste Overpass-verzoeken). De rij-app open je via HTTPS op poort 8099.
 
 Bijwerken: nieuwe versie in de store installeren, of de app herstarten nadat je de repository hebt ververst. De webapp-cache op de telefoon ververst zichzelf (`autoUpdate`). Een harde refresh helpt als een oud serviceworker-bestand blijft hangen.
 
@@ -102,7 +102,7 @@ Cloudflare levert het certificaat aan de telefoon. De verbinding van de tunnel n
 
 1. Open `https://koelkast.ff-dimmen.nl` in Safari of Chrome. Niet in WhatsApp, Instagram of Facebook: die ingebouwde browsers kunnen de app niet installeren.
 2. Volg de uitleg op het eerste scherm. Android: knop Installeren. iPhone Safari: Deel → Zet op beginscherm. iPhone Chrome: dezelfde stap, maar Deel zit rechtsboven.
-3. Open Koelkast vanaf het beginscherm. iOS vraagt daarna opnieuw om locatie; de app legt dat eerst kort uit.
+3. Open De Koelkastbeveiligger vanaf het beginscherm. iOS vraagt daarna opnieuw om locatie; de app legt dat eerst kort uit.
 4. Tik op Start en kies Bij gebruik. Het scherm blijft aan zolang de wake lock het toelaat.
 5. Aan tafel: Demo A2, met 1×, 5× of 10×. De balk DEMO blijft zichtbaar. Zet in de instellingen de debug-kaart aan om de gematchte weg, de lookahead en per stop de reden (goedgekeurd, afrit, verkeerde kant, te ver weg) te zien.
 

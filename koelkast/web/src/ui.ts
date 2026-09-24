@@ -21,6 +21,8 @@ export type DriveModel = {
   speedKmh: number | null
   fuel: string
   rest: string
+  remaining: string
+  driveLabel: string | null
   gps: string
   roads: string
   server: string
@@ -29,6 +31,7 @@ export type DriveModel = {
   position: LatLon | null
   matched: LatLon[] | null
   lookahead: LatLon[] | null
+  nextStops: DebugStop[]
   stops: DebugStop[]
   wake: boolean
 }
@@ -75,7 +78,7 @@ function saveSettings(settings: LocalSettings): void {
 }
 
 export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { drempel: number; lookahead: number }): {
-  showDrive: () => void
+  showDrive: (demoRate?: number | null, seed?: { remaining?: string }) => void
   showStart: (message?: string) => void
   update: (model: DriveModel) => void
   settings: () => LocalSettings
@@ -85,18 +88,17 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
   root.innerHTML = `
     <section id="start">
       <div class="start-inner">
-        <p class="brand">Koelkast</p>
-        <h1>De bocht voor je, in één kleur.</h1>
+        <h1 class="brand">De Koelkastbeveiligger</h1>
         <ul class="legend">
-          <li><i class="swatch left"></i> groen is links</li>
-          <li><i class="swatch straight"></i> oranje is rechtdoor</li>
-          <li><i class="swatch right"></i> rood is rechts</li>
+          <li><i class="swatch left"></i> groen links</li>
+          <li><i class="swatch straight"></i> oranje rechtdoor</li>
+          <li><i class="swatch right"></i> rood rechts</li>
         </ul>
         <button type="button" id="go" class="go">Start</button>
         <p id="start-error" class="start-error" hidden></p>
         <div class="demo-row">
           <button type="button" id="demo" class="secondary">Demo A2</button>
-          <label>Snelheid
+          <label class="rate-label">Snelheid
             <select id="rate">
               <option value="1">1×</option>
               <option value="5">5×</option>
@@ -112,7 +114,7 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
           <label>Lookahead (seconden)
             <input id="lookahead" type="number" min="1" max="60" step="1" />
           </label>
-          <label class="check"><input id="debug" type="checkbox" /> Debug-kaart</label>
+          <label class="check"><input id="debug" type="checkbox" /> Debug-log stops</label>
           <label class="file">GPX afspelen
             <input id="gpx" type="file" accept=".gpx,application/gpx+xml" />
           </label>
@@ -130,24 +132,26 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
         </svg>
       </div>
       <p id="speed" class="speed">– km/u</p>
+      <p id="remaining" class="remaining">– km resterend</p>
+      <p id="drive-label" class="drive-label" hidden></p>
       <div class="bottom">
         <p id="fuel" class="stop-line"></p>
         <p id="rest" class="stop-line"></p>
         <p id="indicators" class="indicators"></p>
       </div>
+      <div id="drive-map" aria-label="Kaart"></div>
       <div class="corner">
         <button type="button" id="stop" class="ghost">Stop</button>
-        <button type="button" id="debug-toggle" class="ghost">Kaart</button>
+        <button type="button" id="debug-toggle" class="ghost">Log</button>
       </div>
       <div id="debug-panel" hidden>
-        <div id="map"></div>
         <ul id="debug-log"></ul>
       </div>
     </section>
     <dialog id="loc-hint">
       <form method="dialog">
         <h2>Locatie tijdens het rijden</h2>
-        <p>Koelkast leest je GPS alleen op deze telefoon, om de kleur van de bocht en de afstand tot de volgende stop te bepalen. Na installatie vraagt iOS daar opnieuw toestemming voor.</p>
+        <p>De Koelkastbeveiligger leest je GPS alleen op deze telefoon, om de kleur van de bocht en de afstand tot de volgende stop te bepalen. Na installatie vraagt iOS daar opnieuw toestemming voor.</p>
         <button type="button" id="loc-go" class="go">Locatie toestaan</button>
       </form>
     </dialog>
@@ -208,15 +212,32 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
     showStart(message?: string) {
       start.hidden = false
       drive.hidden = true
-      document.body.style.background = '#101418'
-      document.title = 'Koelkast'
+      document.body.style.background = '#071018'
+      document.title = 'De Koelkastbeveiligger'
       const error = root.querySelector<HTMLElement>('#start-error')!
       error.hidden = !message
       error.textContent = message ?? ''
+      // Clear stale demo chrome so a later Start never flashes the previous DEMO run.
+      const banner = root.querySelector<HTMLElement>('#demo-banner')!
+      banner.hidden = true
+      banner.textContent = ''
     },
-    showDrive() {
+    showDrive(demoRate: number | null = null, seed?: { remaining?: string }) {
       start.hidden = true
       drive.hidden = false
+      const banner = root.querySelector<HTMLElement>('#demo-banner')!
+      banner.hidden = demoRate == null
+      banner.textContent = demoRate == null ? '' : `DEMO · ${demoRate}×`
+      // Seed remaining so the destination is visible before the first GPS/demo fix.
+      root.querySelector('#remaining')!.textContent = seed?.remaining ?? '– km resterend'
+      if (demoRate == null) {
+        const label = root.querySelector<HTMLElement>('#drive-label')!
+        label.hidden = true
+        label.textContent = ''
+        root.querySelector('#fuel')!.textContent = '⛽ …'
+        root.querySelector('#rest')!.textContent = '🅿 …'
+        root.querySelector('#speed')!.textContent = '– km/u'
+      }
     },
     confirmLocation(onAllow: () => void) {
       dialog.showModal()
@@ -239,6 +260,10 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
       arrow.setAttribute('aria-label', model.bend === 'left' ? 'links' : model.bend === 'right' ? 'rechts' : 'rechtdoor')
       root.querySelector('#speed')!.textContent =
         model.speedKmh == null ? '– km/u' : `${Math.round(model.speedKmh)} km/u`
+      root.querySelector('#remaining')!.textContent = model.remaining
+      const label = root.querySelector<HTMLElement>('#drive-label')!
+      label.hidden = !model.driveLabel
+      label.textContent = model.driveLabel ?? ''
       root.querySelector('#fuel')!.textContent = model.fuel
       root.querySelector('#rest')!.textContent = model.rest
       const wake = model.wake ? '' : ' · scherm kan uitgaan'
@@ -248,10 +273,15 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
       banner.textContent = model.demoRate == null ? '' : `DEMO · ${model.demoRate}×`
       const panel = root.querySelector<HTMLElement>('#debug-panel')!
       panel.hidden = !model.debug
-      if (model.debug) {
-        mapApi ??= createMap(root.querySelector<HTMLElement>('#map')!, root.querySelector<HTMLElement>('#debug-log')!)
-        mapApi.sync(model)
-      }
+      root.querySelector('#debug-log')!.innerHTML = model.stops
+        .slice(0, 40)
+        .map(
+          (stop) =>
+            `<li class="${stop.ok ? 'ok' : 'bad'}">${escapeHtml(stop.name)} — ${escapeHtml(stop.reason)}</li>`,
+        )
+        .join('')
+      mapApi ??= createMap(root.querySelector<HTMLElement>('#drive-map')!)
+      mapApi.sync(model)
     },
   }
 }
@@ -261,7 +291,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function createMap(mapEl: HTMLElement, logEl: HTMLElement): { sync: (model: DriveModel) => void } {
+function createMap(mapEl: HTMLElement): { sync: (model: DriveModel) => void } {
   let map: import('leaflet').Map | null = null
   let layers: import('leaflet').Layer[] = []
   let leaflet: typeof import('leaflet') | null = null
@@ -278,9 +308,8 @@ function createMap(mapEl: HTMLElement, logEl: HTMLElement): { sync: (model: Driv
         }
         const L = leaflet
         if (!map) {
-          map = L.map(mapEl, { zoomControl: false, attributionControl: true })
+          map = L.map(mapEl, { zoomControl: false, attributionControl: false })
           L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap',
             maxZoom: 18,
           }).addTo(map)
         }
@@ -293,16 +322,16 @@ function createMap(mapEl: HTMLElement, logEl: HTMLElement): { sync: (model: Driv
         if (model.lookahead && model.lookahead.length > 1) {
           layers.push(L.polyline(model.lookahead.map(pair), { color: '#fff', weight: 4 }).addTo(map))
         }
-        for (const stop of model.stops.slice(0, 60)) {
+        for (const stop of model.nextStops) {
           layers.push(
             L.circleMarker([stop.lat, stop.lon], {
-              radius: 6,
+              radius: 7,
               color: '#111',
               weight: 1,
-              fillColor: stop.ok ? '#19a34a' : '#e10600',
+              fillColor: '#19a34a',
               fillOpacity: 0.95,
             })
-              .bindTooltip(`${stop.name}: ${stop.reason}`)
+              .bindTooltip(stop.name)
               .addTo(map),
           )
         }
@@ -310,19 +339,12 @@ function createMap(mapEl: HTMLElement, logEl: HTMLElement): { sync: (model: Driv
         map.invalidateSize()
         if (map.getSize().y > 0) {
           if (!centered) {
-            map.setView(here, 14)
+            map.setView(here, 13)
             centered = true
           } else if (!map.getBounds().contains(here)) {
             map.panTo(here)
           }
         }
-        logEl.innerHTML = model.stops
-          .slice(0, 40)
-          .map(
-            (stop) =>
-              `<li class="${stop.ok ? 'ok' : 'bad'}">${escapeHtml(stop.name)} — ${escapeHtml(stop.reason)}</li>`,
-          )
-          .join('')
       }
     },
   }

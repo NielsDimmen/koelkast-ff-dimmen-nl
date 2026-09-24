@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { BendHysteresis, classifyTurn, colorForTurn, colorName, totalTurnDegrees } from './curve'
+import {
+  classifyTurn,
+  colorForTurn,
+  colorName,
+  findDangerousCurves,
+  latchCurveStep,
+  totalTurnDegrees,
+} from './curve'
 import { destination, type LatLon } from './geometry'
 
 function arc(startBearing: number, turn: number, steps: number): LatLon[] {
@@ -8,6 +15,39 @@ function arc(startBearing: number, turn: number, steps: number): LatLon[] {
   const step = turn / steps
   for (let i = 0; i < steps; i++) {
     bearing += step
+    points.push(destination(points[points.length - 1], bearing, 40))
+  }
+  return points
+}
+
+/** Straight approach, then a left bend, then straight again. */
+function leftBendRoad(): LatLon[] {
+  const points: LatLon[] = [{ lat: 51, lon: 5.7 }]
+  for (let i = 0; i < 8; i++) {
+    points.push(destination(points[points.length - 1], 0, 40))
+  }
+  let bearing = 0
+  for (let i = 0; i < 5; i++) {
+    bearing -= 8
+    points.push(destination(points[points.length - 1], bearing, 40))
+  }
+  for (let i = 0; i < 8; i++) {
+    points.push(destination(points[points.length - 1], bearing, 40))
+  }
+  return points
+}
+
+function rightBendRoad(): LatLon[] {
+  const points: LatLon[] = [{ lat: 51, lon: 5.7 }]
+  for (let i = 0; i < 8; i++) {
+    points.push(destination(points[points.length - 1], 0, 40))
+  }
+  let bearing = 0
+  for (let i = 0; i < 5; i++) {
+    bearing += 8
+    points.push(destination(points[points.length - 1], bearing, 40))
+  }
+  for (let i = 0; i < 8; i++) {
     points.push(destination(points[points.length - 1], bearing, 40))
   }
   return points
@@ -38,12 +78,43 @@ describe('bochtdetectie', () => {
     expect(colorForTurn(-15, 15)).toBe('orange')
   })
 
-  it('toont een nieuwe status pas na ongeveer een seconde', () => {
-    const hold = new BendHysteresis(1000)
-    expect(hold.update('left', 0)).toBe('straight')
-    expect(hold.update('left', 900)).toBe('straight')
-    expect(hold.update('left', 1000)).toBe('left')
-    expect(hold.update('right', 1100)).toBe('left')
-    expect(hold.update('left', 1200)).toBe('left')
+  it('houdt groen vast tot de bocht achter ons ligt', () => {
+    const road = leftBendRoad()
+    const curves = findDangerousCurves(road, 15)
+    expect(curves.length).toBeGreaterThanOrEqual(1)
+    const curve = curves[0]
+    expect(curve.bend).toBe('left')
+
+    // Ver vóór de bocht, buiten de lookahead: oranje
+    const far = latchCurveStep(curves, 0, 100, null)
+    expect(far.bend).toBe('straight')
+    expect(far.latched).toBeNull()
+
+    // Bocht komt in de lookahead: groen, latch
+    const enter = latchCurveStep(curves, curve.startAlong - 120, 150, null)
+    expect(enter.bend).toBe('left')
+    expect(enter.latched?.bend).toBe('left')
+
+    // Midden in de bocht: nog steeds groen, ook als we “voorbij” startAlong zijn
+    const mid = latchCurveStep(curves, (curve.startAlong + curve.endAlong) / 2, 150, enter.latched)
+    expect(mid.bend).toBe('left')
+
+    // Pas na endAlong: weer oranje
+    const after = latchCurveStep(curves, curve.endAlong + 20, 150, mid.latched)
+    expect(after.bend).toBe('straight')
+    expect(after.latched).toBeNull()
+  })
+
+  it('houdt rood vast tot de bocht achter ons ligt', () => {
+    const road = rightBendRoad()
+    const curves = findDangerousCurves(road, 15)
+    const curve = curves[0]
+    expect(curve.bend).toBe('right')
+    const enter = latchCurveStep(curves, curve.startAlong - 80, 150, null)
+    expect(enter.bend).toBe('right')
+    const mid = latchCurveStep(curves, curve.endAlong - 10, 150, enter.latched)
+    expect(mid.bend).toBe('right')
+    const after = latchCurveStep(curves, curve.endAlong + 25, 150, mid.latched)
+    expect(after.bend).toBe('straight')
   })
 })

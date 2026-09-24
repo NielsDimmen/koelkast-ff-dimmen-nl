@@ -5,3 +5,6 @@ dist/
 **/.data/
 koelkast/server/dist/
 koelkast/web/dist/
+
+.env
+.env.*
