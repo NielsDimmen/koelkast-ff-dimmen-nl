@@ -115,3 +115,7 @@ npm run demo
 ```
 
 Het script haalt de A2 (ook `A2;A67`) op tussen Maastricht en Eindhoven, volgt de noordelijke rijbaan van Maastricht-Noord naar Leenderheide, en schrijft één punt per seconde: 100 km/u tot de hoogte van Roermond, daarna 120, iets langzamer in bochten, met een paar meter GPS-ruis.
+
+## Cloud Agent smoke test
+
+Deze sectie is een bewust kleine wijziging om te controleren of de Cursor Cloud Agent de repository kan aanpassen, committen en een pull request openen. Aanmaakdatum: 2026-09-24.
