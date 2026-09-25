@@ -151,6 +151,51 @@ export function plannedKmFromDriveTo(text: string | null | undefined): number | 
   return km
 }
 
+/**
+ * Counts down a DESCRIPTION planned-km by accumulating GPS travel.
+ * Without destination GEO the calendar distance is otherwise a fixed number.
+ */
+export class PlannedTravelTracker {
+  private uid: string | null = null
+  private plannedKm = 0
+  private traveledM = 0
+  private last: LatLon | null = null
+
+  reset(): void {
+    this.uid = null
+    this.plannedKm = 0
+    this.traveledM = 0
+    this.last = null
+  }
+
+  /**
+   * Feed every GPS fix while a planned-km nightliner is active.
+   * Resets when the event or planned distance changes.
+   */
+  tick(eventUid: string, plannedKm: number, here: LatLon): number {
+    if (this.uid !== eventUid || this.plannedKm !== plannedKm) {
+      this.uid = eventUid
+      this.plannedKm = plannedKm
+      this.traveledM = 0
+      this.last = { lat: here.lat, lon: here.lon }
+      return plannedKm
+    }
+    if (this.last) {
+      const step = distanceMeters(this.last, here)
+      // Ignore standstill noise and huge GPS teleports; allow sparse fixes
+      // (e.g. ~2 km ≈ 1 min at 120 km/u).
+      if (step >= 1 && step < 3_000) this.traveledM += step
+    }
+    this.last = { lat: here.lat, lon: here.lon }
+    return Math.max(0, this.plannedKm - this.traveledM / 1000)
+  }
+
+  remainingKm(): number | null {
+    if (this.uid == null) return null
+    return Math.max(0, this.plannedKm - this.traveledM / 1000)
+  }
+}
+
 export function parseLatLonText(text: string): LatLon | null {
   const match = /(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/.exec(text)
   if (!match) return null

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Resterende kilometers zonder GEO tellen nu terug: gereden GPS-afstand wordt van de geplande DESCRIPTION-km afgetrokken.
+
 ## 1.0.2
 
 - Tankstations/rustplaatsen: Overpass-box verruimd van ~40 km naar ~90 km, pad zoekt tot 80 km vooruit, cache ververst eerder zodat verder gelegen stops zichtbaar blijven.

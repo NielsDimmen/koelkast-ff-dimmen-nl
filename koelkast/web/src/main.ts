@@ -17,6 +17,7 @@ import { averageSpeedMps, evaluateStops, formatStopLine, stopsFromElements } fro
 import {
   formatRemainingKm,
   nightlinerDestination,
+  PlannedTravelTracker,
   remainingAlongTrack,
   remainingForNightliner,
   type AgendaEvent,
@@ -63,6 +64,8 @@ let nightliner: AgendaEvent | null = null
 /** Short Dutch agenda note for the status line; null when ok / quiet. */
 let agendaNote: string | null = null
 let lastFix: SmoothedFix | null = null
+/** Counts down DESCRIPTION planned-km using GPS travel (no destination GEO). */
+const plannedTravel = new PlannedTravelTracker()
 
 const ui = mountUi(document.querySelector<HTMLElement>('#app')!, {
   onStart: () => startGps(),
@@ -152,6 +155,7 @@ function resetDriveLines(): void {
   lastStopAt = 0
   fuelLine = '⛽ …'
   restLine = '🅿 …'
+  plannedTravel.reset()
   remainingText = formatRemainingKm(null, resolveDestination())
   driveLabel = demoA2 ? 'Demo A2 Maastricht → Eindhoven' : nightliner?.summary ?? null
   nextStops = []
@@ -293,6 +297,11 @@ function graphOf(ways: Way[] | null, current: Way[] | null, graph: Graph | null)
 function onFix(fix: SmoothedFix): void {
   if (!running) return
   lastFix = fix
+  // Advance planned-km countdown on every fix so 2s UI throttle does not undercount.
+  if (!demoA2 && nightliner) {
+    const planned = plannedKmIfNeeded(nightliner, fix)
+    if (planned != null) plannedTravel.tick(nightliner.uid, planned, fix)
+  }
   roads.ensure(fix.lat, fix.lon)
   const roadState = graphOf(roads.data, roadWays, roadGraph)
   roadWays = roadState.ways
@@ -435,10 +444,18 @@ function resolveDestination(): string | null | undefined {
   return undefined
 }
 
+/** Planned DESCRIPTION km only when there is no GEO / lat,lon LOCATION to crow-fly. */
+function plannedKmIfNeeded(event: AgendaEvent, here: SmoothedFix): number | null {
+  const fromEvent = remainingForNightliner(event, here)
+  if (fromEvent?.source !== 'nightliner-planned' || !Number.isFinite(fromEvent.km)) return null
+  return fromEvent.km
+}
+
 function updateRemaining(fix: SmoothedFix): void {
   const destination = resolveDestination()
   // Demo A2 always measures along the GPX, even if a nightliner is on the agenda.
   if (demoTrack && demoA2) {
+    plannedTravel.reset()
     const meters = remainingAlongTrack(demoTrack, fix)
     remainingText = formatRemainingKm(meters == null ? null : meters / 1000, destination)
     driveLabel = 'Demo A2 Maastricht → Eindhoven'
@@ -446,6 +463,14 @@ function updateRemaining(fix: SmoothedFix): void {
   }
   if (nightliner) {
     const fromEvent = remainingForNightliner(nightliner, fix)
+    if (fromEvent && fromEvent.source === 'nightliner-planned' && Number.isFinite(fromEvent.km)) {
+      // Odometer already advanced in onFix; only seed if this is the first reading.
+      const km = plannedTravel.remainingKm() ?? plannedTravel.tick(nightliner.uid, fromEvent.km, fix)
+      remainingText = formatRemainingKm(km, destination)
+      driveLabel = nightliner.summary
+      return
+    }
+    plannedTravel.reset()
     if (fromEvent && fromEvent.source !== 'onbekend' && Number.isFinite(fromEvent.km)) {
       remainingText = formatRemainingKm(fromEvent.km, destination)
       driveLabel = nightliner.summary
@@ -453,6 +478,7 @@ function updateRemaining(fix: SmoothedFix): void {
     }
     driveLabel = nightliner.summary
   } else {
+    plannedTravel.reset()
     driveLabel = null
   }
   if (demoTrack) {

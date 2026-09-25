@@ -4,6 +4,7 @@ import {
   nightlinerDestination,
   parseLatLonText,
   placeFromDriveTo,
+  PlannedTravelTracker,
   plannedKmFromDriveTo,
   remainingAlongTrack,
   remainingForNightliner,
@@ -154,6 +155,29 @@ describe('resterende kilometers', () => {
         nightliner: true,
       }),
     ).toBe('Zürich')
+  })
+
+  it('telt geplande km terug met gereden GPS-afstand', () => {
+    const tracker = new PlannedTravelTracker()
+    const start = { lat: 51.0, lon: 5.7 }
+    expect(tracker.tick('evt-1', 100, start)).toBe(100)
+
+    // ~1.11 km north
+    const after = { lat: 51.01, lon: 5.7 }
+    const remaining = tracker.tick('evt-1', 100, after)
+    expect(remaining).toBeGreaterThan(98.5)
+    expect(remaining).toBeLessThan(99.5)
+
+    // New event resets the odometer
+    expect(tracker.tick('evt-2', 50, after)).toBe(50)
+  })
+
+  it('negeert GPS-teleports in de planned-km teller', () => {
+    const tracker = new PlannedTravelTracker()
+    tracker.tick('evt-1', 200, { lat: 51.0, lon: 5.7 })
+    // Huge jump (~100+ km) must not wipe the remaining distance
+    const remaining = tracker.tick('evt-1', 200, { lat: 52.0, lon: 5.7 })
+    expect(remaining).toBe(200)
   })
 
   it('zet bestemming in de resterend-regel', () => {
