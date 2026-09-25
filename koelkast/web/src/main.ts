@@ -13,7 +13,7 @@ import {
   type StopsPayload,
 } from './overpass'
 import { parseGpx, playTrack, type TrackPoint } from './simulator'
-import { averageSpeedMps, evaluateStops, formatStopLine, stopsFromElements } from './stops'
+import { averageSpeedMps, evaluateStops, formatStopLine, STOPS_AHEAD_M, stopsFromElements } from './stops'
 import {
   formatRemainingKm,
   nightlinerDestination,
@@ -317,17 +317,18 @@ function onFix(fix: SmoothedFix): void {
     const match = matchRoad(roadGraph, fix, heading)
     if (match) {
       matchedRefs = match.travel.way.refs
-      const ahead = Math.max(150, (fix.speed ?? 0) * lookaheadSeconds())
+      // Curve coloring only — NOT used for tankstation/rustplaats search.
+      const curveAheadM = Math.max(150, (fix.speed ?? 0) * lookaheadSeconds())
       const path = buildPath(roadGraph, match, {
         behindM: 80,
-        aheadM: Math.max(ahead, 400),
+        aheadM: Math.max(curveAheadM, 400),
         allowLinks: true,
         motorwayOnly: false,
       })
       matched = path.points
-      const window = slicePolyline(path.points, path.ourAlong + 50, path.ourAlong + ahead)
+      const window = slicePolyline(path.points, path.ourAlong + 50, path.ourAlong + curveAheadM)
       lookahead = window
-      bend = roadLatch.update(path.points, path.ourAlong, ahead, threshold())
+      bend = roadLatch.update(path.points, path.ourAlong, curveAheadM, threshold())
       yawLatch.reset()
     } else {
       bend = yawLatch.update(yawBend(fix.timestamp), fix.timestamp)
@@ -394,7 +395,7 @@ function updateStops(fix: SmoothedFix, heading: number | null, payload: StopsPay
     return
   }
   const match = matchRoad(stopGraph, fix, heading, {
-    maxDistance: 45,
+    maxDistance: 60,
     filter: (way) => way.highway === 'motorway',
   })
   if (!match) {
@@ -404,10 +405,15 @@ function updateStops(fix: SmoothedFix, heading: number | null, payload: StopsPay
     debugStops = [{ lat: fix.lat, lon: fix.lon, name: 'Positie', reason: 'niet op een snelweg', ok: false }]
     return
   }
+  // Keep stop-cache warm from the motorway match itself (independent of curve road tile).
+  if (!demoCorridor && match.travel.way.refs.length > 0) {
+    stops.ensure(fix.lat, fix.lon, match.travel.way.refs)
+  }
   const preferRef = match.travel.way.refs[0]
+  // Fixed ~80 km horizon along the motorway — not the curve lookahead (seconds).
   const path = buildPath(stopGraph, match, {
     behindM: 2500,
-    aheadM: 80_000,
+    aheadM: STOPS_AHEAD_M,
     allowLinks: false,
     motorwayOnly: true,
     gapM: 12,

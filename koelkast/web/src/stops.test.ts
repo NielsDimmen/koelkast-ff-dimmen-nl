@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { destination, distanceMeters, type LatLon } from './geometry'
 import { buildGraph, buildPath, matchRoad, type Way } from './matcher'
-import { evaluateStops, formatStopLine, type StopFeature } from './stops'
+import { evaluateStops, formatStopLine, STOPS_AHEAD_M, type StopFeature } from './stops'
 
 const origin: LatLon = { lat: 51, lon: 5.7 }
 
@@ -84,5 +84,44 @@ describe('stops aan de snelweg', () => {
     expect(lineText).toContain('Shell De Horst')
     expect(lineText).toContain('min')
     expect(formatStopLine('rest', null, 10)).toBe('🅿 Geen rustplaats vooruit')
+  })
+})
+
+describe('tankstation ver vooruit, los van bocht-lookahead', () => {
+  it('keurt een tankstation ~25 km vooruit goed', () => {
+    expect(STOPS_AHEAD_M).toBe(80_000)
+    const steps: number[] = []
+    for (let m = 0; m <= 30_000; m += 500) steps.push(m)
+    const nodeIds = steps.map((_, i) => i + 1)
+    const carriage = line(
+      10,
+      'motorway',
+      steps.map((m) => at(m)),
+      nodeIds,
+    )
+    const diverge = 25_000
+    const merge = 26_500
+    const rightLoop = line(
+      11,
+      'motorway_link',
+      [at(diverge), at(diverge + 400, 80), at(merge - 400, 90), at(merge)],
+      [steps.indexOf(diverge) + 1, 9001, 9002, steps.indexOf(merge) + 1],
+    )
+    const graph = buildGraph([carriage, rightLoop])
+    const match = matchRoad(graph, at(200), 0, { filter: (way) => way.highway === 'motorway' })
+    expect(match).not.toBeNull()
+    const path = buildPath(graph, match!, {
+      behindM: 200,
+      aheadM: STOPS_AHEAD_M,
+      allowLinks: false,
+      motorwayOnly: true,
+    })
+    expect(path.cumulative[path.cumulative.length - 1] - path.ourAlong).toBeGreaterThan(24_000)
+
+    const farFuel = stop('fuel-far-ahead', at(diverge + 400, 100), true, false, 'Shell Ver Weg')
+    const evaluated = evaluateStops(graph, path, [farFuel])
+    expect(evaluated.fuel?.name).toBe('Shell Ver Weg')
+    expect(evaluated.fuel!.distanceM).toBeGreaterThan(20_000)
+    expect(evaluated.fuel!.distanceM).toBeLessThan(28_000)
   })
 })

@@ -111,9 +111,10 @@ export function mountUi(root: HTMLElement, handlers: UiHandlers, defaults: { dre
           <label>Bocht-drempel (graden)
             <input id="drempel" type="number" min="1" max="90" step="1" />
           </label>
-          <label>Lookahead (seconden)
+          <label>Bocht-lookahead (seconden)
             <input id="lookahead" type="number" min="1" max="60" step="1" />
           </label>
+          <p class="hint">Alleen voor bochtkleur. Tankstations zoeken tot ~80 km vooruit, los van deze waarde.</p>
           <label class="check"><input id="debug" type="checkbox" /> Debug-log stops</label>
           <label class="file">GPX afspelen
             <input id="gpx" type="file" accept=".gpx,application/gpx+xml" />

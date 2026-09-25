@@ -224,6 +224,13 @@ h1:not(.brand) {
 
 .settings label, .demo-row label { display: flex; flex-direction: column; gap: 0.3rem; }
 
+.settings .hint {
+  margin: -0.2rem 0 0.4rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #9eb0be;
+}
+
 input, select {
   background: #0c1620;
   color: var(--cream);

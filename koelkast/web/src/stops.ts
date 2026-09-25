@@ -43,10 +43,16 @@ export type StopHit = {
   kind: 'fuel' | 'rest'
 }
 
-const NEAR_M = 150
+const NEAR_M = 200
 const MERGE_AHEAD_M = 80
-const MAX_LOOP_M = 4500
+const MAX_LOOP_M = 6000
 const BRIDGE_M = 40
+
+/**
+ * How far along the motorway to search for the next fuel/rest stop.
+ * Independent of curve `lookahead_seconden` (that setting only colors bends).
+ */
+export const STOPS_AHEAD_M = 80_000
 
 function placeName(tags: Record<string, string>): string | null {
   const name = tags.name?.trim()
@@ -164,7 +170,12 @@ function exploreSpurs(graph: Graph, path: BuiltPath): { loops: Loop[]; exits: Ex
   const exits: ExitPath[] = []
   const seenDeparture = new Set<string>()
 
-  const carriageNodes = [...carriage.entries()].sort((a, b) => a[1] - b[1])
+  // Only explore spurs ahead (and slightly behind) — not the whole 80 km behind us.
+  const fromAlong = path.ourAlong - 40
+  const toAlong = path.ourAlong + STOPS_AHEAD_M
+  const carriageNodes = [...carriage.entries()]
+    .filter(([, along]) => along >= fromAlong && along <= toAlong)
+    .sort((a, b) => a[1] - b[1])
   for (const [nodeId, divergeAlong] of carriageNodes) {
     for (const occurrence of graph.byNode.get(nodeId) ?? []) {
       const travel = occurrence.travel
