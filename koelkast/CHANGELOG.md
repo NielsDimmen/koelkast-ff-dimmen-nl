@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+
+- Tankstations/rustplaatsen zoeken tot ~80 km vooruit langs de snelweg, los van de bocht-lookahead (seconden). UI-label verduidelijkt; spur-zoektocht alleen vooruit.
+
 ## 1.0.3
 
 - Resterende kilometers zonder GEO tellen nu terug: gereden GPS-afstand wordt van de geplande DESCRIPTION-km afgetrokken.
